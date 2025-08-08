@@ -1,8 +1,15 @@
 import {beforeEach, describe, expect, test, vi} from 'vitest';
+import {Suspense} from 'react';
+import {createRoot} from 'react-dom/client';
 import type {Schema} from '../../zero-schema/src/builder/schema-builder.ts';
 import {type AbstractQuery} from '../../zql/src/query/query-impl.ts';
 import type {ResultType} from '../../zql/src/query/typed-view.ts';
-import {getAllViewsSizeForTesting, ViewStore} from './use-query.tsx';
+import {
+  getAllViewsSizeForTesting,
+  ViewStore,
+  useSuspenseQuery,
+} from './use-query.tsx';
+import {ZeroProvider} from './zero-provider.tsx';
 import type {Zero} from '../../zero-client/src/client/zero.ts';
 
 function newMockQuery(
@@ -357,3 +364,45 @@ describe('ViewStore', () => {
     });
   });
 });
+
+describe('useSuspenseQuery', () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+  const isChromium = /Chrome/.test(navigator.userAgent);
+  (isChromium ? test : test.skip)('suspends until data is complete', async () => {
+    const q = newMockQuery('query1');
+    const zero = newMockZero('client1');
+
+    function Comp() {
+      const [data] = useSuspenseQuery(q);
+      return <div>{JSON.stringify(data)}</div>;
+    }
+
+    const el = document.createElement('div');
+    createRoot(el).render(
+      <ZeroProvider zero={zero}>
+        <Suspense fallback={<div>loading</div>}>
+          <Comp />
+        </Suspense>
+      </ZeroProvider>,
+    );
+    await new Promise(r => setTimeout(r, 0));
+    expect(el.textContent).not.toBe('[{"a":1}]');
+
+    while ((q.materialize as any).mock.results.length === 0) {
+      await new Promise(r => setTimeout(r, 0));
+    }
+    const view = (q.materialize as any).mock.results[0].value as {
+      listeners: Set<(snap: unknown, resultType: ResultType) => void>;
+    };
+
+    view.listeners.forEach(cb => cb([{a: 1}], 'complete'));
+    for (let i = 0; i < 10 && el.textContent !== '[{"a":1}]'; i++) {
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    expect(el.textContent).toBe('[{"a":1}]');
+  });
+});
+
