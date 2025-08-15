@@ -404,5 +404,35 @@ describe('useSuspenseQuery', () => {
 
     expect(el.textContent).toBe('[{"a":1}]');
   });
+
+  test('waitForComplete resets when result becomes unknown again', async () => {
+    const q = newMockQuery('query2');
+    const zero = newMockZero('client1');
+    const view = new ViewStore().getView(zero, q, true, 'forever');
+
+    const underlying = (q.materialize as any).mock.results[0].value as {
+      listeners: Set<(snap: unknown, resultType: ResultType) => void>;
+    };
+
+    const p1 = view.waitForComplete();
+    underlying.listeners.forEach(cb => cb([{a: 1}], 'complete'));
+    await p1;
+
+    // Invalidate the view back to unknown
+    underlying.listeners.forEach(cb => cb([{a: 1}], 'unknown'));
+    const p2 = view.waitForComplete();
+    expect(p2).not.toBe(p1);
+    let resolved = false;
+    p2.then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    // Complete again should resolve the new promise
+    underlying.listeners.forEach(cb => cb([{a: 2}], 'complete'));
+    await p2;
+    expect(resolved).toBe(true);
+  });
 });
 

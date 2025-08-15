@@ -335,13 +335,21 @@ class ViewWrapper<
     snap: Immutable<HumanReadable<TReturn>>,
     resultType: ResultType,
   ) => {
+    const prevType = this.#snapshot[1].type;
     const data =
       snap === undefined
         ? snap
         : (deepClone(snap as ReadonlyJSONValue) as HumanReadable<TReturn>);
     this.#snapshot = getSnapshot(this.#format.singular, data, resultType);
+    console.debug(
+      '[use-query] onData',
+      {prevType, resultType},
+    );
     if (resultType === 'complete') {
       this.#completeResolver?.resolve();
+    } else if (prevType === 'complete') {
+      console.debug('[use-query] reset completion promise');
+      this.#resetComplete();
     }
     for (const internals of this.#reactInternals) {
       internals();
